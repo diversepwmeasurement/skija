@@ -1,122 +1,151 @@
-on:
-  push:
-    branches:
-      - '**'
-    paths-ignore:
-      - 'docs/**'
-      - 'examples/**'
-      - 'extras/**'
-      - .dockerignore
-      - .gitignore
-      - CHANGELOG.md
-      - Dockerfile
-      - LICENSE
-      - README.md
-
 jobs:
-  shared:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-        with:
-          fetch-depth: 0
-      - run: |
-          echo "JAVA_HOME=$JAVA_HOME_11_X64" >> $GITHUB_ENV
-          echo "$JAVA_HOME_11_X64/bin" >> $GITHUB_PATH
-      - run: python3 script/deploy_shared.py
-        if: github.ref == 'refs/heads/master'
-        env:
-          USER_NAME: ${{ secrets.USER_NAME }}
-          SPACE_TOKEN: ${{ secrets.SPACE_TOKEN }}
-      - run: python3 script/deploy_shared.py --dry-run
-        if: github.ref != 'refs/heads/master'
-      - uses: actions/upload-artifact@v2
-        with:
-          name: skija-shared-jar
-          path: shared/target/*.jar
-
-  macos:
-    runs-on: macos-10.15
+  linux:
     needs: shared
+    runs-on: self-hosted
+    steps:
+    - continue-on-error: true
+      run: 'echo "JAVA_HOME=$JAVA_HOME_11_X64" >> $GITHUB_ENV
+
+        echo "$JAVA_HOME_11_X64/bin" >> $GITHUB_PATH
+
+        sudo apt-get --quiet --yes install ninja-build libglu1-mesa-dev
+
+        sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-9 60 --slave
+        /usr/bin/g++ g++ /usr/bin/g++-9
+
+        sudo update-alternatives --config gcc
+
+        '
+    - continue-on-error: true
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+    - continue-on-error: true
+      run: python3 script/build.py
+    - continue-on-error: true
+      run: python3 script/test.py
+    - continue-on-error: true
+      env:
+        SPACE_TOKEN: ${{ secrets.SPACE_TOKEN }}
+        USER_NAME: ${{ secrets.USER_NAME }}
+      if: github.ref == 'refs/heads/master'
+      run: python3 script/deploy_platform.py
+    - continue-on-error: true
+      if: github.ref != 'refs/heads/master'
+      run: python3 script/deploy_platform.py --dry-run
+    - continue-on-error: true
+      uses: actions/upload-artifact@v2
+      with:
+        name: skija-linux-jar
+        path: platform/target/*.jar
+  macos:
+    needs: shared
+    runs-on: self-hosted
+    steps:
+    - continue-on-error: true
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+    - continue-on-error: true
+      uses: seanmiddleditch/gha-setup-ninja@master
+    - continue-on-error: true
+      run: 'echo "JAVA_HOME=$JAVA_HOME_11_X64" >> $GITHUB_ENV
+
+        echo "$JAVA_HOME_11_X64/bin" >> $GITHUB_PATH
+
+        '
+    - continue-on-error: true
+      run: python3 script/build.py --arch=${{ matrix.arch }}
+    - continue-on-error: true
+      if: ${{ matrix.arch == 'x64'}}
+      name: Test
+      run: python3 script/test.py
+    - continue-on-error: true
+      env:
+        SPACE_TOKEN: ${{ secrets.SPACE_TOKEN }}
+        USER_NAME: ${{ secrets.USER_NAME }}
+      if: github.ref == 'refs/heads/master'
+      run: python3 script/deploy_platform.py --arch=${{ matrix.arch }}
+    - continue-on-error: true
+      if: github.ref != 'refs/heads/master'
+      run: python3 script/deploy_platform.py --arch=${{ matrix.arch }} --dry-run
+    - continue-on-error: true
+      uses: actions/upload-artifact@v2
+      with:
+        name: skija-macos-${{ matrix.arch }}-jar
+        path: platform/target/*.jar
     strategy:
       matrix:
-        arch: ["x64", "arm64"]
+        arch:
+        - x64
+        - arm64
+  shared:
+    runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v2
-        with:
-          fetch-depth: 0
-      - uses: seanmiddleditch/gha-setup-ninja@master
-      - run: |
-          echo "JAVA_HOME=$JAVA_HOME_11_X64" >> $GITHUB_ENV
-          echo "$JAVA_HOME_11_X64/bin" >> $GITHUB_PATH
-      - run: python3 script/build.py --arch=${{ matrix.arch }}
-      - name: Test
-        if: ${{ matrix.arch == 'x64'}}
-        run: python3 script/test.py
-      - run: python3 script/deploy_platform.py --arch=${{ matrix.arch }}
-        if: github.ref == 'refs/heads/master'
-        env:
-          USER_NAME: ${{ secrets.USER_NAME }}
-          SPACE_TOKEN: ${{ secrets.SPACE_TOKEN }}
-      - run: python3 script/deploy_platform.py --arch=${{ matrix.arch }} --dry-run
-        if: github.ref != 'refs/heads/master'
-      - uses: actions/upload-artifact@v2
-        with:
-          name: skija-macos-${{ matrix.arch }}-jar
-          path: platform/target/*.jar
+    - continue-on-error: true
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+    - continue-on-error: true
+      run: 'echo "JAVA_HOME=$JAVA_HOME_11_X64" >> $GITHUB_ENV
 
-  linux:
-    runs-on: ubuntu-16.04
-    needs: shared
-    steps:
-      - run: |
-          echo "JAVA_HOME=$JAVA_HOME_11_X64" >> $GITHUB_ENV
-          echo "$JAVA_HOME_11_X64/bin" >> $GITHUB_PATH
-          sudo apt-get --quiet --yes install ninja-build libglu1-mesa-dev
-          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-9 60 --slave /usr/bin/g++ g++ /usr/bin/g++-9
-          sudo update-alternatives --config gcc
-      - uses: actions/checkout@v2
-        with:
-          fetch-depth: 0
-      - run: python3 script/build.py
-      - run: python3 script/test.py
-      - run: python3 script/deploy_platform.py
-        if: github.ref == 'refs/heads/master'
-        env:
-          USER_NAME: ${{ secrets.USER_NAME }}
-          SPACE_TOKEN: ${{ secrets.SPACE_TOKEN }}
-      - run: python3 script/deploy_platform.py --dry-run
-        if: github.ref != 'refs/heads/master'
-      - uses: actions/upload-artifact@v2
-        with:
-          name: skija-linux-jar
-          path: platform/target/*.jar
+        echo "$JAVA_HOME_11_X64/bin" >> $GITHUB_PATH
 
+        '
+    - continue-on-error: true
+      env:
+        SPACE_TOKEN: ${{ secrets.SPACE_TOKEN }}
+        USER_NAME: ${{ secrets.USER_NAME }}
+      if: github.ref == 'refs/heads/master'
+      run: python3 script/deploy_shared.py
+    - continue-on-error: true
+      if: github.ref != 'refs/heads/master'
+      run: python3 script/deploy_shared.py --dry-run
+    - continue-on-error: true
+      uses: actions/upload-artifact@v2
+      with:
+        name: skija-shared-jar
+        path: shared/target/*.jar
   windows:
-    runs-on: windows-2019
     needs: shared
+    runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v2
-        with:
-          fetch-depth: 0
-      - uses: microsoft/setup-msbuild@v1
-      - uses: ilammy/msvc-dev-cmd@v1
-      - uses: seanmiddleditch/gha-setup-ninja@master
-      - shell: bash
-        run: |
-          echo "JAVA_HOME=$JAVA_HOME_11_X64" >> $GITHUB_ENV
-          echo "$JAVA_HOME_11_X64/bin" >> $GITHUB_PATH
-      - run: python3 script/build.py
-      - shell: bash
-        run: python3 script/test.py
-      - run: python3 script/deploy_platform.py
-        if: github.ref == 'refs/heads/master'
-        env:
-          USER_NAME: ${{ secrets.USER_NAME }}
-          SPACE_TOKEN: ${{ secrets.SPACE_TOKEN }}
-      - run: python3 script/deploy_platform.py --dry-run
-        if: github.ref != 'refs/heads/master'
-      - uses: actions/upload-artifact@v2
-        with:
-          name: skija-windows-jar
-          path: platform/target/*.jar
+    - continue-on-error: true
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+    - continue-on-error: true
+      uses: microsoft/setup-msbuild@v1
+    - continue-on-error: true
+      uses: ilammy/msvc-dev-cmd@v1
+    - continue-on-error: true
+      uses: seanmiddleditch/gha-setup-ninja@master
+    - continue-on-error: true
+      run: 'echo "JAVA_HOME=$JAVA_HOME_11_X64" >> $GITHUB_ENV
+
+        echo "$JAVA_HOME_11_X64/bin" >> $GITHUB_PATH
+
+        '
+      shell: bash
+    - continue-on-error: true
+      run: python3 script/build.py
+    - continue-on-error: true
+      run: python3 script/test.py
+      shell: bash
+    - continue-on-error: true
+      env:
+        SPACE_TOKEN: ${{ secrets.SPACE_TOKEN }}
+        USER_NAME: ${{ secrets.USER_NAME }}
+      if: github.ref == 'refs/heads/master'
+      run: python3 script/deploy_platform.py
+    - continue-on-error: true
+      if: github.ref != 'refs/heads/master'
+      run: python3 script/deploy_platform.py --dry-run
+    - continue-on-error: true
+      uses: actions/upload-artifact@v2
+      with:
+        name: skija-windows-jar
+        path: platform/target/*.jar
+on:
+  repository_dispatch:
+    types: trigger-ga___build.yml
